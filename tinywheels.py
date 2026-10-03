@@ -10,8 +10,10 @@ Controls:
   Down / S     brake
   Left / A     steer left
   Right / D    steer right
+  Space        handbrake: throw the car into a drift (DRIFT mode)
   1            pick 3 LAPS mode (on the title screen)
   2            pick INFINITE mode (on the title screen)
+  3            pick DRIFT mode (on the title screen)
   Enter        play again on a new random track (after you finish)
   M            back to the title screen
   Q / Esc      quit
@@ -20,6 +22,12 @@ Controls:
 INFINITE: the road never ends. You start with 30 seconds; every red torii gate
 is a checkpoint that adds time. Score points for distance (double while
 drifting = steering hard at speed) and for jumps. Drive until time runs out!
+
+DRIFT: a downhill mountain pass through a pine and sakura forest. Hold
+Space and steer to throw the tail out, keep steering + gas to hold the
+drift, steer the other way to straighten up. Points build up while you
+slide and count when you straighten out cleanly; link drifts for a combo
+(up to x5). Hit the guardrail and you lose the drift you were in.
 
 Day turns into night and back every 3 minutes. Past 20,000 points in
 INFINITE, convenience stores (konbini) start showing up along the road.
@@ -86,8 +94,34 @@ CAR_ART = [                      # one letter per pixel, "." = see-through
     "tt............tt",
     "tt............tt",
 ]
+# The car at an angle while drifting: nose to the right, so we see its back and its left side
+CAR_SIDE = [
+    "......wwwwwwwwwwwww.....",
+    ".....wkkkkkkwkkkkkkkw...",
+    "....wkkkkkkkwkkkkkkkkw..",
+    "...wwwwwwwwwwwwwwwwwwwww",
+    "..wrroowwoorrwwwwwwwwwwy",
+    "..bbbbbbbbbbbbbbbbbbbbbb",
+    "..bbbbbppbbbbbbbbbbbbbbb",
+    "..ttt......ttt.....ttt..",
+    "..ttt......ttt.....ttt..",
+]
+CAR_SIDE = [row[:13] + row[13:].replace("w", "s") for row in CAR_SIDE]   # side panels a bit shaded
+CAR_SIDE_L = [row[::-1] for row in CAR_SIDE]       # the same, nose to the left
+CAR["y"] = "255;245;200"                            # headlight
+CAR["s"] = "196;198;208"                            # white paint on the side, in shade
+
 # Things that make their own light. Everything else gets darker (and bluer) at night.
-GLOWS = {GLOW, WINDOW, VEND_LIT, PAPER, MOON, STAR, *DRINKS, CAR["r"], CAR["o"], BRAKE_LIGHT, STORE_LIT, SHELF}
+GLOWS = {GLOW, WINDOW, VEND_LIT, PAPER, MOON, STAR, *DRINKS, CAR["r"], CAR["o"], CAR["y"], BRAKE_LIGHT, STORE_LIT, SHELF}
+
+# Two looks for the world: the snowy sakura road, and the green mountain pass of DRIFT mode
+SNOWY  = dict(sky=SKY, far=FAR_SNOW, ground=SNOW, edges=[(1.12, RUMBLE)], road=ROAD, lane=LANE)
+FOREST = dict(sky="150;198;240", far="72;118;78", ground=["86;150;70", "74;136;62"],
+              edges=[(1.16, ["128;118;100", "118;108;92"]), (1.04, ["240;240;235"] * 2)],   # gravel, white line
+              road=["72;74;82", "66;68;76"], lane="235;235;225")
+MOUNT_FAR, MOUNT_NEAR = "120;160;165", "62;108;72"
+PINE_DARK = "25;72;45"
+RAIL, RAIL_POST = "215;215;210", "150;150;145"
 
 # ---------------- day and night ----------------
 DAY_LENGTH = 180   # seconds for one full day + night
@@ -140,6 +174,7 @@ FPS       = 30
 DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "tinywheels")
 START_TIME = 30          # infinite mode: seconds on the clock at the start
 CHECKPOINT = 400         # infinite mode: a torii checkpoint every this many segments
+DRIFT_LEN = 3600         # drift mode: length of the mountain course, in segments
 KONBINI_SCORE = 20000    # infinite mode: konbini stores start to appear after this score
 CHECKPOINT_TIME = 10     # infinite mode: seconds added by the first checkpoint (later ones give less)
 
@@ -154,7 +189,7 @@ def add_piece(g, n_in, n_hold, n_out, c, dy, deco=True):
     """Add one stretch of road (curve c, going up/down by dy) with trees, maybe a ramp, and obstacles.
     A track is a list of segments; each has a curve, a height, a kind and some sprites."""
     total = n_in + n_hold + n_out
-    ramp = random.randrange(total - 4) if deco and random.random() < 0.25 else -9
+    ramp = random.randrange(total - 4) if deco and g.mode != "drift" and random.random() < 0.25 else -9
     for k in range(total):
         if k < n_in:            cv = ease_in(0, c, k / n_in)
         elif k < n_in + n_hold: cv = c
@@ -164,6 +199,17 @@ def add_piece(g, n_in, n_hold, n_out, c, dy, deco=True):
         g.ys.append(ease_inout(g.y_end, g.y_end + dy, k / total))
         g.kind.append("ramp" if ramp <= k < ramp + 4 else "")
         spr = []
+        if g.mode == "drift":                                # mountain pass: guardrails and forest
+            if i % 2 == 0:
+                spr += [(-1.2, "rail", 0), (1.2, "rail", 0)]
+            for side in (-1, 1):
+                if random.random() < 0.55:
+                    spr.append((side * random.uniform(1.5, 4.5), "pine" if random.random() < 0.65 else "tree",
+                                random.random()))
+            if random.random() < 1 / 200:
+                spr.append((random.choice([-1, 1]) * 1.6, "vending", 0))
+            g.sprites.append(spr)
+            continue
         if random.random() < 0.35:                          # sakura trees
             spr.append((random.choice([-1, 1]) * random.uniform(1.4, 3.5), "tree", random.random()))
         if i % 40 == 20:                                     # stone lanterns line the road
@@ -192,6 +238,14 @@ def random_piece(g):
     add_piece(g, n, random.choice([15, 30, 50]), n, c, dy)
 
 
+def drift_piece(g):
+    """Mountain pass: sharp corners and hairpins, short straights between them, going downhill."""
+    n = random.choice([8, 15, 25])
+    add_piece(g, n, random.choice([10, 20, 35]), n, random.choice([3, 4, 5, 6, 7]) * random.choice([-1, 1]),
+              -random.uniform(0, 12) * SEG)
+    add_piece(g, 0, random.choice([5, 15, 30]), 0, 0, -random.uniform(0, 5) * SEG)
+
+
 def grow(g):
     """Infinite mode: keep building road just ahead of the car."""
     # ponytail: old road is never thrown away (~1 MB per 10 min of driving); trim it if you drive for days
@@ -201,7 +255,7 @@ def grow(g):
 
 # ---------------- game state ----------------
 class Game:
-    def __init__(self, mode=None, tod=0.3):   # mode: None = title menu, "laps" or "infinite"
+    def __init__(self, mode=None, tod=0.3):   # mode: None = title menu, "laps", "infinite" or "drift"
         self.mode = mode
         self.tod = tod               # time of day, 0..1 (0.3 = morning)
         self.pos = self.x = self.speed = 0.0
@@ -215,6 +269,14 @@ class Game:
         if mode == "infinite":
             self.length = math.inf
             grow(self)
+        elif mode == "drift":
+            while len(self.curve) < DRIFT_LEN:
+                drift_piece(self)
+            self.finish_seg = len(self.curve)
+            add_piece(self, 0, DRAW + 20, 0, 0, 0)               # road after the finish line
+            self.kind[self.finish_seg] = self.kind[self.finish_seg + 1] = "finish"
+            self.sprites[self.finish_seg].append((0, "torii", 0))
+            self.length = math.inf
         else:
             while len(self.curve) < 1400:
                 random_piece(self)
@@ -235,30 +297,38 @@ class Game:
         self.records = load_records(mode)  # best first
         self.steer = 0               # -1 left, 0 straight, 1 right
         self.drifting = False
+        self.slip = 0.0              # drift mode: how sideways the car is, -1..1 (+ = nose to the right)
+        self.pending = 0.0           # drift mode: points of the drift you're in right now
+        self.combo = 1               # drift mode: multiplier for drifts linked together
+        self.calm = 0.0              # drift mode: seconds since the last drift
+        snow = mode != "drift"       # no snow on the mountain pass, only petals
         self.parts = [[random.random(), random.random(), random.uniform(-0.03, 0.03),
-                       random.uniform(0.05, 0.12) if i % 2 else random.uniform(0.1, 0.22),
-                       random.choice(PETALS) if i % 2 else FLAKE, random.uniform(0, 6.3)]
-                      for i in range(160)]   # [x, y, drift, fall speed, color, wobble], x/y in 0..1
+                       random.uniform(0.05, 0.12) if i % 2 or not snow else random.uniform(0.1, 0.22),
+                       random.choice(PETALS) if i % 2 or not snow else FLAKE, random.uniform(0, 6.3)]
+                      for i in range(160 if snow else 90)]   # [x, y, drift, fall speed, color, wobble], x/y in 0..1
+
+
+SCORED = ("infinite", "drift")   # modes where a higher number is better
 
 
 def records_file(mode):
-    return os.path.join(DATA_DIR, "infinite.txt" if mode == "infinite" else "records.txt")
+    return os.path.join(DATA_DIR, {"infinite": "infinite.txt", "drift": "drift.txt"}.get(mode, "records.txt"))
 
 
 def load_records(mode):
-    """Laps: times, lowest first. Infinite: scores, highest first."""
+    """Laps: times, lowest first. Infinite and drift: scores, highest first."""
     if mode is None:
         return []
     try:
         with open(records_file(mode)) as f:
-            return sorted((float(t) for t in f.read().split()), reverse=mode == "infinite")
+            return sorted((float(t) for t in f.read().split()), reverse=mode in SCORED)
     except (OSError, ValueError):
         return []
 
 
 def finish(g, value):
     g.done, g.result = True, value
-    g.records = sorted(g.records + [value], reverse=g.mode == "infinite")
+    g.records = sorted(g.records + [value], reverse=g.mode in SCORED)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(records_file(g.mode), "w") as f:
         f.write("\n".join(f"{t:.3f}" for t in g.records) + "\n")
@@ -269,8 +339,8 @@ def fmt(t):
 
 
 def show(g, v):
-    """A record as text: a time for laps, a score for infinite."""
-    return str(int(v)) if g.mode == "infinite" else fmt(v)
+    """A record as text: a time for laps, a score for infinite and drift."""
+    return str(int(v)) if g.mode in SCORED else fmt(v)
 
 
 def say(g, text):
@@ -304,8 +374,21 @@ def update(g, dt, keys, t):
         return                   # still counting down
 
     air = g.jump_h > 0
-    g.x += steer * dt * 2.5 * pct * (0.4 if air else 1)
-    g.x -= dt * 2 * pct * pct * g.curve[seg] * CENTRIFUGAL
+    if g.mode == "drift":
+        hand = "drift" in keys and not g.done
+        if hand and steer and pct > 0.3:
+            g.slip += steer * dt * 2.5                       # handbrake + steer: kick the tail out
+        elif steer * g.slip > 0 and "up" in keys:
+            g.slip += (steer * 0.4 - g.slip * 0.6) * dt      # gas + steer into it: hold the drift
+        else:
+            g.slip -= g.slip * dt * (3.0 if steer * g.slip < 0 else 1.2)   # counter-steer or let go: grip back
+        g.slip = max(-1.0, min(1.0, g.slip))
+        g.x += (steer * 2.5 * (1 - 0.6 * abs(g.slip)) + g.slip * 2.2) * dt * pct   # the nose pulls you in
+        g.x -= dt * 2 * pct * pct * g.curve[seg] * CENTRIFUGAL * 1.6               # corners push you out
+        g.speed -= (abs(g.slip) * 0.15 + (0.3 if hand else 0)) * MAX_SPEED * dt   # sliding costs speed
+    else:
+        g.x += steer * dt * 2.5 * pct * (0.4 if air else 1)
+        g.x -= dt * 2 * pct * pct * g.curve[seg] * CENTRIFUGAL
     if "up" in keys and not g.done:     g.speed += ACCEL * dt
     elif "down" in keys and not g.done: g.speed -= BRAKE * dt
     else:                               g.speed -= DECEL * dt
@@ -314,7 +397,10 @@ def update(g, dt, keys, t):
     g.x = max(-3.0, min(3.0, g.x))
     g.speed = max(0.0, min(MAX_SPEED, g.speed))
     g.braking = "down" in keys and not g.done
-    g.drifting = bool(steer) and g.speed > MAX_SPEED * 0.6 and abs(g.x) <= 1 and not air
+    if g.mode == "drift":
+        g.drifting = abs(g.slip) > 0.2 and g.speed > MAX_SPEED * 0.3 and abs(g.x) <= 1
+    else:
+        g.drifting = bool(steer) and g.speed > MAX_SPEED * 0.6 and abs(g.x) <= 1 and not air
 
     if air or g.vz > 0:          # flying through the air
         g.air_t += dt
@@ -337,6 +423,31 @@ def update(g, dt, keys, t):
             say(g, "KONBINI AHEAD!")
         if g.time_left <= 0:
             g.time_left = 0.0
+            finish(g, int(g.score))
+
+    if g.mode == "drift" and not g.done:
+        if g.drifting:
+            g.pending += abs(g.slip) * (g.speed / MAX_SPEED) * 400 * dt
+            g.calm = 0.0
+        else:
+            g.calm += dt
+            if g.pending and g.calm > 0.4:                   # drift finished cleanly: bank the points
+                pts = int(g.pending * g.combo)
+                g.score += pts
+                say(g, f"+{pts}" + (f"  x{g.combo}" if g.combo > 1 else ""))
+                if g.pending > 150:
+                    g.combo = min(5, g.combo + 1)
+                g.pending = 0.0
+            if g.calm > 4:
+                g.combo = 1
+        if abs(g.x) > 1.12:                                  # hit the guardrail
+            g.x = math.copysign(1.1, g.x)
+            if g.bonk == 0:
+                say(g, "CRASH! drift lost" if g.pending else "CRASH!")
+                g.speed, g.slip, g.bonk, g.pending, g.combo = g.speed * 0.5, 0.0, 0.8, 0.0, 1
+        if g.pos + PLAYER_Z >= g.finish_seg * SEG:           # finish line
+            g.score += int(g.pending * g.combo)
+            g.pending = 0.0
             finish(g, int(g.score))
 
     # move, and check every segment we drove over (fast cars can skip one per frame)
@@ -396,8 +507,8 @@ def line(px, x0, y0, x1, y1, half, color, clip):
         span(px[r], x - half, x + half + 1, color)
 
 
-def background(w, h, horizon, sky, tod, dark):
-    px = [[SKY] * w for _ in range(horizon)] + [[FAR_SNOW] * w for _ in range(h - horizon)]
+def background(w, h, horizon, sky, tod, dark, th):
+    px = [[th["sky"]] * w for _ in range(horizon)] + [[th["far"]] * w for _ in range(h - horizon)]
     mh = horizon * 0.55                                   # Mt. Fuji height
     fx = ((0.35 - sky) % 1.5 - 0.25) * w
     if dark > 0.4:                                        # stars (a few twinkle off each frame)
@@ -412,7 +523,15 @@ def background(w, h, horizon, sky, tod, dark):
     if q < 1:
         mx, my, mr = ((0.1 + 0.8 * q - sky * 0.5) % 1.5 - 0.25) * w, horizon * (1 - 0.8 * math.sin(q * math.pi)), horizon * 0.09
         circle(px, mx, my, mr, MOON, horizon)
-        circle(px, mx + mr * 0.5, my - mr * 0.2, mr * 0.85, SKY, horizon)    # take a bite: crescent moon
+        circle(px, mx + mr * 0.5, my - mr * 0.2, mr * 0.85, th["sky"], horizon)    # take a bite: crescent moon
+    if th is FOREST:                                      # layers of green mountains, near ones scroll faster
+        for color, low, amp, speed in ((MOUNT_FAR, 0.25, 0.4, 0.5), (MOUNT_NEAR, 0.08, 0.3, 1.0)):
+            for c in range(w):
+                u = (c / w + sky * speed) * 6.28
+                top = horizon * (1 - low - amp * (0.5 + 0.3 * math.sin(u * 1.3 + speed) + 0.15 * math.sin(u * 4.1)))
+                for r in range(max(0, int(top)), horizon):
+                    px[r][c] = color
+        return px
     bx, th, wd = ((0.8 - sky) % 1.5 - 0.25) * w, horizon * 0.06, horizon * 0.12   # far-away pagoda
     rect(px, bx - 0.5, bx + 0.5, horizon - 6.5 * th, horizon - 5 * th, PAGODA, horizon)
     for k in range(5):
@@ -424,6 +543,16 @@ def background(w, h, horizon, sky, tod, dark):
         half = mh * 2 * (0.1 + d)
         span(px[row], fx - half, fx + half, SNOW_CAP if d < 0.3 else FUJI)
     return px
+
+
+def draw_pine(px, cx, gy, s, clip, size, snow):
+    """A pine tree: trunk and 3 tiers of branches (darker underneath), maybe with snow on top."""
+    rect(px, cx - 60 * size * s, cx + 60 * size * s, gy - 250 * size * s, gy, TRUNK, clip)
+    for k in range(3):
+        top, tall, wide = gy - (1300 - k * 300) * size * s, 500 * size * s, (220 + k * 70) * size * s
+        for row in range(max(0, int(top)), min(clip, int(top + tall))):
+            d = (row - top) / tall
+            span(px[row], cx - wide * d, cx + wide * d, SNOW_CAP if snow and d < 0.3 else PINE if d < 0.65 else PINE_DARK)
 
 
 def draw_sprite(px, what, v, cx, gy, s, clip):
@@ -489,12 +618,12 @@ def draw_sprite(px, what, v, cx, gy, s, clip):
         circle(px, cx - 60 * s, gy - 150 * s, 330 * s, ROCK[0], ground, 1.2, SNOW_CAP)
         circle(px, cx + 260 * s, gy - 60 * s, 180 * s, ROCK[1], ground, 1.2, SNOW_CAP)
     elif what == "obstacle":                       # little snowy pine tree
-        rect(px, cx - 60 * s, cx + 60 * s, gy - 250 * s, gy, TRUNK, clip)
-        for k in range(3):
-            top, tall, wide = gy - (1300 - k * 300) * s, 500 * s, (220 + k * 70) * s
-            for row in range(max(0, int(top)), min(clip, int(top + tall))):
-                d = (row - top) / tall
-                span(px[row], cx - wide * d, cx + wide * d, SNOW_CAP if d < 0.3 else PINE)
+        draw_pine(px, cx, gy, s, clip, 1, True)
+    elif what == "pine":                           # tall forest pine (drift mode)
+        draw_pine(px, cx, gy, s, clip, 1.6 + 1.2 * v, False)
+    elif what == "rail":                           # guardrail: a post and a piece of rail
+        rect(px, cx - 25 * s, cx + 25 * s, gy - 330 * s, gy, RAIL_POST, clip)
+        rect(px, cx - 230 * s, cx + 230 * s, gy - 330 * s, gy - 230 * s, RAIL, clip)
     elif what == "torii":
         u = ROAD_W * s
         for side in (-1, 1):
@@ -511,11 +640,13 @@ def render(g, w, h):
     P = h * 0.65                                    # projection scale
     base, frac = int(g.pos // SEG), (g.pos % SEG) / SEG
     y0, y1 = g.ys[base % N], g.ys[(base + 1) % N]
-    cam_y = y0 + (y1 - y0) * frac + CAM_H + g.jump_h
+    th = FOREST if g.mode == "drift" else SNOWY
+    cam_h = CAM_H * (0.8 if g.mode == "drift" else 1)      # drift-cam: a bit lower
+    cam_y = y0 + (y1 - y0) * frac + cam_h + g.jump_h
     cam_x = g.x * ROAD_W
     light = light_at(g.tod)
     dark = max(0.0, min(1.0, (0.85 - sum(light) / 3) / 0.5))     # 0 = day, 1 = night
-    px = background(w, h, horizon, g.sky, g.tod, dark)
+    px = background(w, h, horizon, g.sky, g.tod, dark, th)
     tinted, lit = {}, {}                            # color caches for this frame
 
     def lighten(c, amount, color):
@@ -548,16 +679,17 @@ def render(g, w, h):
             continue                                # hidden behind a hill
         stripe = (i // 3) % 2
         k = g.kind[i]
-        road = RAMP[i % 2] if k == "ramp" else FINISH[i % 2] if k == "finish" else ROAD[stripe]
+        road = RAMP[i % 2] if k == "ramp" else FINISH[i % 2] if k == "finish" else th["road"][stripe]
         top = max(0, math.ceil(yf))
         for r in range(top, min(maxy, math.ceil(yn))):
             t = (yn - r) / (yn - yf)
             c, hw = cn + (cf - cn) * t, hn + (hf - hn) * t
-            row = [SNOW[stripe]] * w
-            span(row, c - hw * 1.12, c + hw * 1.12, RUMBLE[stripe])
+            row = [th["ground"][stripe]] * w
+            for f, colors in th["edges"]:
+                span(row, c - hw * f, c + hw * f, colors[stripe])
             span(row, c - hw, c + hw, road)
             if stripe and not k:
-                span(row, c - hw * 0.03, c + hw * 0.03, LANE)
+                span(row, c - hw * 0.03, c + hw * 0.03, th["lane"])
             px[r] = row
         maxy = top
 
@@ -567,7 +699,7 @@ def render(g, w, h):
 
     if dark > 0.05:     # headlights: two warm beams straight ahead, fading with distance
         for r in range(horizon + 1, h):
-            z = DEPTH * P * (CAM_H + g.jump_h) / (r - horizon)    # how far away this row is
+            z = DEPTH * P * (cam_h + g.jump_h) / (r - horizon)    # how far away this row is
             if not PLAYER_Z * 0.9 < z < BEAM_LEN:
                 continue
             fade, sc, half = 1.3 * (1 - z / BEAM_LEN) * dark, DEPTH * P / z, 400 + z * 0.16
@@ -583,18 +715,28 @@ def render(g, w, h):
         if 0 <= r < h:
             span(px[r], col, col + (2 if p[4] != FLAKE else 1), p[4])
 
-    cs = max(1, round(w / 90))                      # the car
+    art = CAR_ART                                   # the car: from behind, or at an angle when drifting
+    if g.mode == "drift" and abs(g.slip) > 0.15:
+        art = CAR_SIDE if g.slip > 0 else CAR_SIDE_L
+    cs = max(1, round(w / (70 if g.mode == "drift" else 90)))
+    aw = len(art[0]) * cs
     lift = int(g.jump_h / 40)
     bounce = random.randint(0, 1) if abs(g.x) > 1 and g.speed > 0 and not lift else 0
-    x0, y0 = w // 2 - len(CAR_ART[0]) * cs // 2, h - len(CAR_ART) * cs - 2 - lift - bounce
+    x0 = w // 2 - aw // 2 - int(g.slip * 4 * cs)  # the tail swings out to the side
+    y0 = h - len(art) * cs - 2 - lift - bounce
     if lift:
-        rect(px, x0, x0 + len(CAR_ART[0]) * cs, h - 3, h - 1, SHADOW, h)
+        rect(px, x0, x0 + aw, h - 3, h - 1, SHADOW, h)
+    elif g.drifting and g.mode == "drift":          # big clouds of tire smoke from the back wheels
+        back = (x0, x0 + aw * 0.6) if g.slip > 0 else (x0 + aw * 0.4, x0 + aw)
+        for _ in range(18):
+            sx, sy = random.uniform(*back), h - 2 - random.uniform(0, 5) * cs
+            rect(px, sx - 2 * cs, sx + 2 * cs, sy - 2 * cs, sy, SMOKE, h)
     elif g.drifting:                                # drift smoke from the tires
         for _ in range(8):
-            sx = x0 + random.choice([0, len(CAR_ART[0]) * cs]) + random.uniform(-3, 3) * cs
+            sx = x0 + random.choice([0, aw]) + random.uniform(-3, 3) * cs
             sy = h - 3 - random.uniform(0, 3) * cs
             rect(px, sx - cs, sx + cs, sy - cs, sy, SMOKE, h)
-    for r, line in enumerate(CAR_ART):
+    for r, line in enumerate(art):
         for c, ch in enumerate(line):
             if ch != ".":
                 color = BRAKE_LIGHT if ch == "r" and g.braking else CAR[ch]
@@ -602,7 +744,9 @@ def render(g, w, h):
     glow = max(dark, 0.5 if g.braking else 0) * (1.5 if g.braking else 1)
     if glow > 0.05:     # red glow around the taillights (bigger when braking)
         rad = (3.5 if g.braking else 2.5) * cs
-        for tx in (x0 + 3 * cs, x0 + 13 * cs):
+        lights = art[4]
+        spots = [c for c in range(len(lights)) if lights[c] == "r" and (c == 0 or lights[c - 1] != "r")]
+        for tx in (x0 + (c + 1) * cs for c in spots):     # middle of each pair of red lights
             ty = y0 + 4.5 * cs
             for r in range(max(0, int(ty - rad)), min(h, int(ty + rad) + 1)):
                 for c in range(max(0, int(tx - rad)), min(w, int(tx + rad) + 1)):
@@ -640,6 +784,11 @@ def hud(g, cols, rows):
     mid = rows // 3
     if g.mode is None:
         bar = " TINY WHEELS"
+    elif g.mode == "drift":
+        now = g.clock if g.done else max(0.0, g.clock)
+        done = min(100, int(100 * (g.pos + PLAYER_Z) / (g.finish_seg * SEG)))
+        bar = (f" DRIFT SCORE {int(g.score)}   COMBO x{g.combo}   TIME {fmt(now)}   BEST {best}"
+               f"   {kmh:3d} km/h   COURSE {done}%")
     elif g.mode == "infinite":
         bar = (f" SCORE {int(g.score)}   TIME LEFT {g.time_left:4.1f}   CHECKPOINTS {g.checkpoints}"
                f"   BEST {best}   {kmh:3d} km/h" + ("   DRIFT x2" if g.drifting else ""))
@@ -653,7 +802,8 @@ def hud(g, cols, rows):
         s += center(mid, "T I N Y   W H E E L S")
         s += center(mid + 2, "1 = 3 LAPS      fastest time wins     ")
         s += center(mid + 3, "2 = INFINITE    drive on, score points")
-        s += center(mid + 5, "q = quit")
+        s += center(mid + 4, "3 = DRIFT       mountain pass, drift! ")
+        s += center(mid + 6, "q = quit")
     elif g.clock < 0:
         s += center(mid, str(math.ceil(-g.clock)))
         if g.records:                              # the records list, best first
@@ -664,9 +814,14 @@ def hud(g, cols, rows):
         s += center(mid, "GO!")
     if g.msg_t and not g.done:
         s += center(mid + 2, g.msg)
+    if g.pending and not g.done:
+        s += center(mid + 4, f"DRIFT {int(g.pending)}" + (f"  x{g.combo}" if g.combo > 1 else ""))
     if g.done:
         place = g.records.index(g.result) + 1
-        if g.mode == "infinite":
+        if g.mode == "drift":
+            s += center(mid, "FINISH!")
+            s += center(mid + 2, f"Drift score: {int(g.result)}    Time: {fmt(g.clock)}")
+        elif g.mode == "infinite":
             s += center(mid, "TIME UP!")
             s += center(mid + 2, f"Score: {int(g.result)}    Checkpoints: {g.checkpoints}")
         else:
@@ -680,8 +835,9 @@ def hud(g, cols, rows):
 # ---------------- keyboard ----------------
 KEY_RE = re.compile(rb"\x1b\[\?\d+u|\x1b\[(\d*)(?:;(\d*)(?::(\d+))?)?([A-Za-z~])|\x1bO([A-D])|([\s\S])")
 LETTERS = {"w": "up", "s": "down", "a": "left", "d": "right", "q": "quit", "\x1b": "quit",
-           "\x03": "quit", "\r": "enter", "\n": "enter", " ": "enter", "1": "laps", "2": "infinite", "m": "menu"}
+           "\x03": "quit", "\r": "enter", "\n": "enter", " ": "drift", "1": "laps", "2": "infinite", "3": "touge", "m": "menu"}
 ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left"}
+HELD = {"up", "down", "left", "right", "drift"}     # keys that count while you hold them
 
 
 def parse(data):
@@ -727,7 +883,7 @@ def main():
                 for name, ev in parse(os.read(fd, 1024)):
                     if name == "kitty":
                         kitty = True
-                    elif name in ARROWS.values():
+                    elif name in HELD:
                         if ev == 3:
                             held.pop(name, None)
                         elif kitty:
@@ -738,8 +894,9 @@ def main():
                         pressed.add(name)
             if "quit" in pressed:
                 break
-            if g.mode is None and pressed & {"laps", "infinite", "enter"}:
-                g = Game("infinite" if "infinite" in pressed else "laps", g.tod)
+            if g.mode is None and pressed & {"laps", "infinite", "touge", "enter"}:
+                mode = "infinite" if "infinite" in pressed else "drift" if "touge" in pressed else "laps"
+                g = Game(mode, g.tod)
             elif "menu" in pressed:
                 g = Game(None, g.tod)
             elif "enter" in pressed and g.done:
@@ -795,6 +952,26 @@ def selftest():
     k.tod, k.braking = 0.0, True
     assert render(k, 200, 100).count("▀") == 200 * 50
     print("ok - konbini shows up at 20000 points, night lights draw fine")
+    d = Game("drift"); d.clock = 0.1                  # drift: a simple bot drives the mountain pass
+    for i in range(4000):
+        seg = int((d.pos + PLAYER_Z) // SEG)
+        curve = d.curve[seg + 8]                        # look a bit ahead
+        keys = {"up"}
+        if abs(curve) > 2:
+            keys.add("right" if curve > 0 else "left")
+            if abs(d.slip) < 0.3 and d.speed > MAX_SPEED * 0.5:
+                keys.add("drift")
+        if d.x > 0.8: keys.discard("right")
+        if d.x < -0.8: keys.discard("left")
+        update(d, 1 / 30, keys, i / 30)
+        if d.done:
+            break
+    assert d.score > 0 and d.done, (d.score, d.done, d.pos / SEG)
+    assert render(d, 200, 100).count("▀") == 200 * 50
+    d.done, d.pending, d.bonk, d.x = False, 500.0, 0.0, 1.3     # hitting the guardrail loses the drift
+    update(d, 1 / 30, set(), 0)
+    assert d.pending == 0 and d.combo == 1 and abs(d.x) <= 1.12
+    print(f"ok - drift bot finished the pass with {int(d.score)} points in {fmt(d.clock)}")
     print(f"ok - {(time.perf_counter() - t0) / 300 * 1000:.1f} ms per frame, track {len(g.curve)} segments")
 
 

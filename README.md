@@ -15,6 +15,9 @@ snowflakes, with Mt. Fuji on the horizon.
 - **3 LAPS** mode: race 3 laps for the fastest time
 - **INFINITE** mode: an endless road. Torii-gate checkpoints add time, and you score points for distance, drifting and jumps.
   Pass 20,000 points and convenience stores (konbini) start to appear along the road
+- **DRIFT** mode: an Initial D-style downhill mountain pass through a forest of pines and sakuras
+  (no snow here). A lower drift-cam shows the car turned sideways in a cloud of tire smoke.
+  Points build up while you slide, linked drifts raise a combo up to x5, and hitting the guardrail loses the drift
 - Your records are saved and shown during the countdown, best first
 - Pure Python standard library, nothing to install, uses about 15 MB of RAM
 
@@ -67,7 +70,8 @@ Then delete the folder if you want (`rm -rf ~/tinywheels`). Your records are kep
 | ↑ / W          | Speed up                                    |
 | ↓ / S          | Brake                                       |
 | ← → / A D      | Steer                                       |
-| 1 / 2          | Pick 3 LAPS / INFINITE on the title screen  |
+| Space          | Handbrake: throw the car into a drift (DRIFT mode) |
+| 1 / 2 / 3      | Pick 3 LAPS / INFINITE / DRIFT on the title screen |
 | Enter          | Play again (after you finish)               |
 | M              | Back to the title screen                    |
 | Q / Esc        | Quit                                        |
@@ -83,8 +87,12 @@ Run `tinywheels --help` to see the controls in the terminal.
   You score points for distance (double while drifting, which means steering hard at high speed) and
   for jumps. Keep going until time runs out.
 
+- **DRIFT:** hold **Space** and steer into a corner to throw the tail out. Keep steering into it with
+  the gas held to hold the drift, and steer the other way to straighten up. Your drift points are added to
+  your score when you straighten out without hitting anything. Chain drifts quickly for a bigger combo.
+
 Records are saved in `~/.local/share/tinywheels/` (`records.txt` for lap times,
-`infinite.txt` for scores).
+`infinite.txt` and `drift.txt` for scores).
 
 ## License
 
