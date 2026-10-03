@@ -7,6 +7,10 @@ snowflakes, with Mt. Fuji on the horizon.
 - Pseudo-3D "OutRun style" road with curves and hills, drawn with `▀` half-blocks in 24-bit color
 - A new random track every race
 - Ramps to jump, and stone lanterns, rocks and pine trees to avoid
+- A day and night cycle: sunrise, a red sun, sunset, then a moon and stars with glowing
+  lanterns, house windows and headlights
+- Cozy roadside details: sakura trees, stone lanterns, little wooden houses, vending machines,
+  festival lantern strings across the road, and a pagoda by Mt. Fuji
 - **3 LAPS** mode: race 3 laps for the fastest time
 - **INFINITE** mode: an endless road. Torii-gate checkpoints add time, and you score points for distance, drifting and jumps
 - Your records are saved and shown during the countdown, best first

@@ -21,6 +21,7 @@ INFINITE: the road never ends. You start with 30 seconds; every red torii gate
 is a checkpoint that adds time. Score points for distance (double while
 drifting = steering hard at speed) and for jumps. Drive until time runs out!
 
+Day turns into night and back every 3 minutes.
 Yellow-black stripes are ramps (jump!). Lanterns, rocks and pines
 slow you down, and so does the deep snow.
 Your records are saved in ~/.local/share/tinywheels/
@@ -39,8 +40,8 @@ ROAD     = ["98;100;115", "90;92;106"]
 LANE     = "240;240;240"
 RAMP     = ["250;200;40", "45;45;45"]       # yellow / black = jump here!
 FINISH   = ["250;250;250", "25;25;25"]
-TRUNK    = "90;55;50"
-BLOSSOM  = ["255;185;210", "240;150;185"]
+TRUNK    = "72;54;58"                       # dark grey-brown sakura bark
+BLOSSOM  = ["232;150;182", "248;188;208", "255;221;233"]  # deep / mid / pale pink
 TORII    = "210;40;40"
 TORII_TOP = "45;30;30"
 STONE    = ["150;150;155", "115;115;122"]  # lantern stone, light / dark
@@ -51,6 +52,18 @@ PETALS   = ["255;190;215", "250;150;190"]
 FLAKE    = "255;255;255"
 SHADOW   = "150;155;175"
 SMOKE    = "235;235;240"
+PAGODA   = "78;80;112"
+WOOD     = "125;85;62"
+ROOF     = "62;58;75"
+WINDOW   = "255;205;120"                    # warm window light
+VEND     = "225;60;70"
+VEND_LIT = "205;235;255"
+DRINKS   = ["60;120;220", "240;160;40", "60;170;90", "200;50;60"]
+PAPER    = "240;85;55"                      # paper lanterns (chochin)
+STRING   = "60;45;45"
+MOON     = "250;245;215"
+STAR     = "255;255;235"
+BEAM     = ["138;132;118", "130;124;112"]   # road lit by the headlights
 # The car: a white-and-black "panda" AE86 hatchback, seen from behind
 CAR = {"w": "245;245;245", "k": "35;40;60", "r": "220;30;40", "o": "255;150;40",
        "b": "15;15;20", "p": "230;230;210", "t": "45;45;45"}
@@ -65,6 +78,38 @@ CAR_ART = [                      # one letter per pixel, "." = see-through
     "tt............tt",
     "tt............tt",
 ]
+# Things that make their own light. Everything else gets darker (and bluer) at night.
+GLOWS = {GLOW, WINDOW, VEND_LIT, PAPER, MOON, STAR, *BEAM, *DRINKS, CAR["r"], CAR["o"]}
+
+# ---------------- day and night ----------------
+DAY_LENGTH = 180   # seconds for one full day + night
+# Light over the day: (time of day 0..1, red, green, blue). 0.0 = midnight, 0.5 = noon.
+LIGHT = [(0.0, .22, .26, .45), (0.18, .22, .26, .45), (0.25, .85, .65, .72), (0.32, 1, 1, 1),
+         (0.68, 1, 1, 1), (0.76, 1, .7, .52), (0.84, .45, .38, .6), (0.9, .22, .26, .45), (1.0, .22, .26, .45)]
+STARS = [(random.random(), random.random() ** 2 * 0.85) for _ in range(70)]
+
+
+def light_at(tod):
+    for (t0, *a), (t1, *b) in zip(LIGHT, LIGHT[1:]):
+        if tod <= t1:
+            p = (tod - t0) / (t1 - t0)
+            return [x + (y - x) * p for x, y in zip(a, b)]
+    return LIGHT[-1][1:]
+
+
+def tree_shape(rng):
+    """One sakura: a few branches and a wide, fluffy crown made of blossom clusters."""
+    clusters = []
+    for _ in range(10):
+        a = rng.uniform(-1, 1)
+        clusters.append((a * 750, -1500 + a * a * 550 + rng.uniform(-150, 250), rng.uniform(250, 400)))
+    clusters.sort(key=lambda c: -c[1])     # lowest first, so the top clusters are drawn on top
+    branches = [(rng.uniform(-650, -250), rng.uniform(-1300, -1000)),
+                (rng.uniform(250, 650), rng.uniform(-1300, -1000)), (rng.uniform(-150, 150), -1450)]
+    return clusters, branches
+
+
+TREE_SHAPES = [tree_shape(random.Random(k)) for k in range(8)]
 
 # ---------------- world settings (tweak these!) ----------------
 SEG       = 200          # length of one road segment
@@ -112,6 +157,14 @@ def add_piece(g, n_in, n_hold, n_out, c, dy, deco=True):
         spr = []
         if random.random() < 0.35:                          # sakura trees
             spr.append((random.choice([-1, 1]) * random.uniform(1.4, 3.5), "tree", random.random()))
+        if i % 40 == 20:                                     # stone lanterns line the road
+            spr += [(-1.35, "lantern", 0), (1.35, "lantern", 0)]
+        if random.random() < 1 / 90:
+            spr.append((random.choice([-1, 1]) * random.uniform(2.8, 4.5), "house", 0))
+        if random.random() < 1 / 150:
+            spr.append((random.choice([-1, 1]) * 1.6, "vending", 0))
+        if i % 300 in (150, 158, 166):                       # festival lanterns over the road
+            spr.append((0, "chochin", 0))
         if g.mode == "infinite" and i % CHECKPOINT == 0 and i:
             g.kind[i] = "finish"
             spr.append((0, "torii", 0))
@@ -137,8 +190,9 @@ def grow(g):
 
 # ---------------- game state ----------------
 class Game:
-    def __init__(self, mode=None):   # mode: None = title menu, "laps" or "infinite"
+    def __init__(self, mode=None, tod=0.3):   # mode: None = title menu, "laps" or "infinite"
         self.mode = mode
+        self.tod = tod               # time of day, 0..1 (0.3 = morning)
         self.pos = self.x = self.speed = 0.0
         self.curve, self.ys, self.kind, self.sprites = [], [], [], []
         self.y_end = 0.0
@@ -227,6 +281,7 @@ def update(g, dt, keys, t):
     g.sky += g.curve[seg] * pct * dt * 0.02
     g.bonk = max(0.0, g.bonk - dt)
     g.msg_t = max(0.0, g.msg_t - dt)
+    g.tod = (g.tod + dt / DAY_LENGTH) % 1
 
     if g.mode is None:
         return                   # title menu: just let it snow
@@ -281,7 +336,7 @@ def update(g, dt, keys, t):
                 say(g, f"CHECKPOINT +{bonus:.0f}s")
             elif g.jump_h or g.bonk:
                 continue
-            elif what == "obstacle" and abs(g.x - sx) < 0.33:
+            elif what in ("obstacle", "lantern", "vending") and abs(g.x - sx) < 0.33:
                 g.speed, g.bonk = min(g.speed, MAX_SPEED * 0.3), 0.8
                 say(g, "BONK!")
             elif what == "tree" and abs(g.x - sx) < 0.25:
@@ -316,12 +371,36 @@ def circle(px, cx, cy, r, color, clip, stretch=1.0, cap=None):
         span(px[row], cx - half, cx + half, cap if cap and d < -0.55 else color)
 
 
-def background(w, h, horizon, sky):
+def line(px, x0, y0, x1, y1, half, color, clip):
+    """A thick line, drawn row by row (good for steep lines like branches)."""
+    for r in range(max(0, int(min(y0, y1))), min(clip, int(max(y0, y1)) + 1)):
+        x = x0 + (x1 - x0) * (r - y0) / (y1 - y0) if y1 != y0 else x0
+        span(px[r], x - half, x + half + 1, color)
+
+
+def background(w, h, horizon, sky, tod, dark):
     px = [[SKY] * w for _ in range(horizon)] + [[FAR_SNOW] * w for _ in range(h - horizon)]
     mh = horizon * 0.55                                   # Mt. Fuji height
     fx = ((0.35 - sky) % 1.5 - 0.25) * w
-    sx = ((0.7 - sky * 0.5) % 1.5 - 0.25) * w
-    circle(px, sx, horizon - mh * 0.8, horizon * 0.2, SUN, horizon)
+    if dark > 0.4:                                        # stars (a few twinkle off each frame)
+        for x, y in STARS:
+            if random.random() < 0.97:
+                px[int(y * horizon)][int(((x - sky * 0.3) % 1) * w)] = STAR
+    p = (tod - 0.2) / 0.65                                # sun: rises at 0.2, sets at 0.85
+    if 0 < p < 1:
+        circle(px, ((0.1 + 0.8 * p - sky * 0.5) % 1.5 - 0.25) * w,
+               horizon * (1 - 0.85 * math.sin(p * math.pi)), horizon * 0.15, SUN, horizon)
+    q = ((tod - 0.8) % 1) / 0.45                          # moon: rises at 0.8, sets at 0.25
+    if q < 1:
+        mx, my, mr = ((0.1 + 0.8 * q - sky * 0.5) % 1.5 - 0.25) * w, horizon * (1 - 0.8 * math.sin(q * math.pi)), horizon * 0.09
+        circle(px, mx, my, mr, MOON, horizon)
+        circle(px, mx + mr * 0.5, my - mr * 0.2, mr * 0.85, SKY, horizon)    # take a bite: crescent moon
+    bx, th, wd = ((0.8 - sky) % 1.5 - 0.25) * w, horizon * 0.06, horizon * 0.12   # far-away pagoda
+    rect(px, bx - 0.5, bx + 0.5, horizon - 6.5 * th, horizon - 5 * th, PAGODA, horizon)
+    for k in range(5):
+        y, f = horizon - (k + 1) * th, 1 - k * 0.13
+        rect(px, bx - wd * f, bx + wd * f, y, y + th * 0.35, PAGODA, horizon)
+        rect(px, bx - wd * f * 0.55, bx + wd * f * 0.55, y + th * 0.35, y + th, PAGODA, horizon)
     for row in range(max(0, int(horizon - mh)), horizon):
         d = (row - (horizon - mh)) / mh
         half = mh * 2 * (0.1 + d)
@@ -331,10 +410,43 @@ def background(w, h, horizon, sky):
 
 def draw_sprite(px, what, v, cx, gy, s, clip):
     """cx, gy = screen spot where the sprite touches the ground, s = pixels per world unit."""
-    if what == "tree":
-        rect(px, cx - 70 * s, cx + 70 * s, gy - 900 * s, gy, TRUNK, clip)
-        circle(px, cx, gy - 1050 * s, (500 + 150 * v) * s, BLOSSOM[int(v * 2)], clip, 1.3, SNOW_CAP)
-    elif what == "obstacle" and v == 0:            # stone lantern (toro)
+    if what == "tree":                             # sakura: trunk, branches, fluffy blossom clusters
+        clusters, branches = TREE_SHAPES[int(v * len(TREE_SHAPES))]
+        rect(px, cx - 75 * s, cx + 75 * s, gy - 700 * s, gy, TRUNK, clip)
+        for bx, by in branches:
+            line(px, cx, gy - 650 * s, cx + bx * s, gy + by * s, 40 * s, TRUNK, clip)
+        for k, (dx, dy, r) in enumerate(clusters):
+            low = k < len(clusters) // 2           # lower clusters are in shadow: deeper pink
+            circle(px, cx + dx * s, gy + dy * s, r * s, BLOSSOM[0] if low else BLOSSOM[1], clip, 1.15,
+                   BLOSSOM[1] if low else BLOSSOM[2])
+    elif what == "house":                          # little wooden house with warm windows
+        rect(px, cx - 600 * s, cx + 600 * s, gy - 700 * s, gy, WOOD, clip)
+        for wx in (-380, 180):
+            rect(px, cx + wx * s, cx + (wx + 200) * s, gy - 520 * s, gy - 280 * s, WINDOW, clip)
+        rect(px, cx - 70 * s, cx + 70 * s, gy - 480 * s, gy, ROOF, clip)
+        top, tall = gy - 1150 * s, 450 * s
+        for row in range(max(0, int(top)), min(clip, int(top + tall))):
+            d = (row - top) / tall
+            span(px[row], cx - (350 + 450 * d) * s, cx + (350 + 450 * d) * s, SNOW_CAP if d < 0.45 else ROOF)
+    elif what == "vending":                        # Japanese drink vending machine
+        rect(px, cx - 170 * s, cx + 170 * s, gy - 700 * s, gy, VEND, clip)
+        rect(px, cx - 130 * s, cx + 130 * s, gy - 640 * s, gy - 330 * s, VEND_LIT, clip)
+        for k, col in enumerate(DRINKS):
+            rect(px, cx + (-110 + k * 60) * s, cx + (-70 + k * 60) * s, gy - 560 * s, gy - 460 * s, col, clip)
+        rect(px, cx - 100 * s, cx + 100 * s, gy - 200 * s, gy - 120 * s, STRING, clip)
+        rect(px, cx - 180 * s, cx + 180 * s, gy - 740 * s, gy - 700 * s, SNOW_CAP, clip)
+    elif what == "chochin":                        # a string of paper lanterns across the road
+        u = ROAD_W * s
+        for side in (-1, 1):
+            rect(px, cx + side * 1.35 * u - 40 * s, cx + side * 1.35 * u + 40 * s, gy - 1900 * s, gy, STRING, clip)
+        steps = max(2, int(2.7 * u))
+        for k in range(steps + 1):
+            t = k / steps
+            x, y = cx + (2 * t - 1) * 1.35 * u, gy - (1900 - 350 * (1 - (2 * t - 1) ** 2)) * s
+            if k % (steps // 8 or 1) == 0 and 0 < k < steps:
+                rect(px, x - 70 * s, x + 70 * s, y, y + 200 * s, PAPER, clip)
+            rect(px, x, x + 1, y, y + 1, STRING, clip)
+    elif what == "lantern" or (what == "obstacle" and v == 0):    # stone lantern (toro)
         for x1, y1, y2, color in [(250, 0, 120, STONE[1]), (90, 120, 500, STONE[0]),
                                   (220, 500, 580, STONE[1]), (170, 580, 800, STONE[0]),
                                   (80, 620, 760, GLOW), (320, 800, 900, STONE[1]),
@@ -369,7 +481,9 @@ def render(g, w, h):
     y0, y1 = g.ys[base % N], g.ys[(base + 1) % N]
     cam_y = y0 + (y1 - y0) * frac + CAM_H + g.jump_h
     cam_x = g.x * ROAD_W
-    px = background(w, h, horizon, g.sky)
+    light = light_at(g.tod)
+    dark = max(0.0, min(1.0, (0.85 - sum(light) / 3) / 0.5))     # 0 = day, 1 = night
+    px = background(w, h, horizon, g.sky, g.tod, dark)
 
     maxy = h                                        # rows below this are already drawn
     x, dx = 0.0, -g.curve[base % N] * frac
@@ -403,6 +517,14 @@ def render(g, w, h):
             px[r] = row
         maxy = top
 
+    if dark > 0.35:                                 # headlights light up the road at night
+        top = int(h * 0.58)
+        for r in range(top, h):
+            half, row = w * (0.05 + 0.2 * (r - top) / (h - top)), px[r]
+            for c in range(max(0, int(w / 2 - half)), min(w, int(w / 2 + half))):
+                if row[c] in ROAD:
+                    row[c] = BEAM[row[c] == ROAD[1]]
+
     for i, s, c, gy, clip in reversed(seen):        # trees, obstacles, gates: far to near
         for sx, what, v in g.sprites[i]:
             draw_sprite(px, what, v, c + s * sx * ROAD_W, gy, s, clip)
@@ -428,15 +550,23 @@ def render(g, w, h):
             if ch != ".":
                 rect(px, x0 + c * cs, x0 + (c + 1) * cs, y0 + r * cs, y0 + (r + 1) * cs, CAR[ch], h)
 
+    tinted = {}                                     # every color, darkened for the time of day
+
+    def tint(c):
+        if c not in tinted:
+            r, gr, b = c.split(";")
+            tinted[c] = c if c in GLOWS else f"{int(int(r) * light[0])};{int(int(gr) * light[1])};{int(int(b) * light[2])}"
+        return tinted[c]
+
     out = []                                        # 2 pixel rows -> 1 text row of "▀"
     for r in range(h // 2):
-        line, last = [f"\x1b[{r + 1};1H"], None
+        row, last = [f"\x1b[{r + 1};1H"], None
         for top, bot in zip(px[2 * r], px[2 * r + 1]):
             if (top, bot) != last:
-                line.append(f"\x1b[38;2;{top}m\x1b[48;2;{bot}m")
+                row.append(f"\x1b[38;2;{tint(top)}m\x1b[48;2;{tint(bot)}m")
                 last = (top, bot)
-            line.append("▀")
-        out.append("".join(line))
+            row.append("▀")
+        out.append("".join(row))
     return "".join(out)
 
 
@@ -550,11 +680,11 @@ def main():
             if "quit" in pressed:
                 break
             if g.mode is None and pressed & {"laps", "infinite", "enter"}:
-                g = Game("infinite" if "infinite" in pressed else "laps")
+                g = Game("infinite" if "infinite" in pressed else "laps", g.tod)
             elif "menu" in pressed:
-                g = Game()
+                g = Game(None, g.tod)
             elif "enter" in pressed and g.done:
-                g = Game(g.mode)
+                g = Game(g.mode, g.tod)
             update(g, dt, {k for k, t in held.items() if t > now}, now)
 
             cols, rows = os.get_terminal_size()
@@ -589,6 +719,9 @@ def selftest():
         update(g, 1 / 30, {"up"}, i / 30)
         frame = render(g, 200, 100)
     assert frame.count("▀") == 200 * 50
+    for tod in (0.0, 0.25, 0.5, 0.8):               # night, dawn, noon, sunset all draw fine
+        g.tod = tod
+        assert render(g, 200, 100).count("▀") == 200 * 50
     assert g.pos > 0 and g.clock > 0
     g = Game("infinite")                            # infinite: road keeps growing, score adds up
     for i in range(3000):
