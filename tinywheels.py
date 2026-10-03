@@ -94,22 +94,57 @@ CAR_ART = [                      # one letter per pixel, "." = see-through
     "tt............tt",
     "tt............tt",
 ]
-# The car at an angle while drifting: nose to the right, so we see its back and its left side
-CAR_SIDE = [
-    "......wwwwwwwwwwwww.....",
-    ".....wkkkkkkwkkkkkkkw...",
-    "....wkkkkkkkwkkkkkkkkw..",
-    "...wwwwwwwwwwwwwwwwwwwww",
-    "..wrroowwoorrwwwwwwwwwwy",
-    "..bbbbbbbbbbbbbbbbbbbbbb",
-    "..bbbbbppbbbbbbbbbbbbbbb",
-    "..ttt......ttt.....ttt..",
-    "..ttt......ttt.....ttt..",
+# DRIFT mode's camera is closer, so the car there is drawn with more detail:
+# from behind, turned a little, and fully sideways (nose to the right; flipped for the left)
+DRIFT_REAR = [
+    ".......WWWWWWWWWWWW.......",
+    "......wwkkkkkkkkkkww......",
+    ".....wwkgkkkkkkkkkkww.....",
+    "....wwkkkgkkkkkkkkkkww....",
+    "...BbbbbbbbbbbbbbbbbbbB...",
+    "..wwwwwwwwwwwwwwwwwwwwww..",
+    ".wwrrroooBBBBBBBBooorrrww.",
+    ".wwrrroooBBBBBBBBooorrrww.",
+    ".bbbbbbbbbbppppbbbbbbbbbb.",
+    ".bbbbbbbbbbppppbbbbbbbbbb.",
+    ".BBBBBBBBBBBBBBBBBBBBBBBB.",
+    ".tttt................tttt.",
+    ".tttt................tttt.",
 ]
-CAR_SIDE = [row[:13] + row[13:].replace("w", "s") for row in CAR_SIDE]   # side panels a bit shaded
-CAR_SIDE_L = [row[::-1] for row in CAR_SIDE]       # the same, nose to the left
-CAR["y"] = "255;245;200"                            # headlight
-CAR["s"] = "196;198;208"                            # white paint on the side, in shade
+DRIFT_HALF = [   # turned a little: nose to the right
+    "......WWWWWWWWWWWWWW........",
+    ".....wwkkkkkkkkkkkwsgg......",
+    "....wwkgkkkkkkkkkkwsggg.....",
+    "...wwkkkgkkkkkkkkkwskkks....",
+    "..BbbbbbbbbbbbbbbbBsssssss..",
+    ".wwwwwwwwwwwwwwwwwwsssssssy.",
+    ".wrrooBBBBBBBBoorrwssssssss.",
+    ".wrrooBBBBBBBBoorrwssssssss.",
+    ".bbbbbbbbppppbbbbbbBBBBBBBo.",
+    ".bbbbbbbbppppbbbbbbbbbbbbbb.",
+    ".BBBBBBBBBBBBBBBBBBbbbtmmtb.",
+    ".tttt..........tttt..tmmt...",
+    ".tttt..........tttt...tt....",
+]
+DRIFT_SIDE = [   # fully sideways: nose to the right
+    "......WWWWWWWWWWWWWWWWW...........",
+    ".....wwkkkkkkkkkwsgggggSggggs.....",
+    "....wwkgkkkkkkkkwsggggkSkgggks....",
+    "...wwkkkgkkkkkkkwskkkkkSkkkkkksB..",
+    "..BbbbbbbbbbbbbbBssssssssssssssWWW",
+    ".wwwwwwwwwwwwwwwwssssssssssssssssy",
+    ".wrrooBBBBBBoorrwsssssssssmmssssss",
+    ".wrrooBBBBBBoorrwssssssssssssssssS",
+    ".bbbbbbbppbbbbbbbBBBBBBBBBBBBBBBBo",
+    ".bbbbbbbppbbbbbbbbbbbbbbbbbbbbbbbb",
+    ".BBBBBBBBBBBBBBBBbbtmmtbbbbbbtmmtb",
+    ".tttt.......tttt..tmmt......tmmt..",
+    ".tttt.......tttt...tt........tt...",
+]
+CAR.update({"W": "255;255;255", "s": "198;200;210", "S": "160;163;176", "g": "88;104;136",
+            "B": "52;52;60", "m": "170;173;182", "y": "255;245;200"})   # highlight, shade, glass shine, trim, rims
+CAR_SHADOW = "38;40;48"
+SMOKE2   = "208;208;215"
 
 # Things that make their own light. Everything else gets darker (and bluer) at night.
 GLOWS = {GLOW, WINDOW, VEND_LIT, PAPER, MOON, STAR, *DRINKS, CAR["r"], CAR["o"], CAR["y"], BRAKE_LIGHT, STORE_LIT, SHELF}
@@ -715,10 +750,12 @@ def render(g, w, h):
         if 0 <= r < h:
             span(px[r], col, col + (2 if p[4] != FLAKE else 1), p[4])
 
-    art = CAR_ART                                   # the car: from behind, or at an angle when drifting
-    if g.mode == "drift" and abs(g.slip) > 0.15:
-        art = CAR_SIDE if g.slip > 0 else CAR_SIDE_L
-    cs = max(1, round(w / (70 if g.mode == "drift" else 90)))
+    art, cs = CAR_ART, max(1, round(w / 90))      # the car: from behind, or turning when drifting
+    if g.mode == "drift":
+        art = DRIFT_REAR if abs(g.slip) < 0.15 else DRIFT_HALF if abs(g.slip) < 0.45 else DRIFT_SIDE
+        if g.slip < 0:
+            art = [row[::-1] for row in art]        # nose to the left: mirror it
+        cs = max(1, round(w / 85))
     aw = len(art[0]) * cs
     lift = int(g.jump_h / 40)
     bounce = random.randint(0, 1) if abs(g.x) > 1 and g.speed > 0 and not lift else 0
@@ -726,11 +763,13 @@ def render(g, w, h):
     y0 = h - len(art) * cs - 2 - lift - bounce
     if lift:
         rect(px, x0, x0 + aw, h - 3, h - 1, SHADOW, h)
-    elif g.drifting and g.mode == "drift":          # big clouds of tire smoke from the back wheels
-        back = (x0, x0 + aw * 0.6) if g.slip > 0 else (x0 + aw * 0.4, x0 + aw)
-        for _ in range(18):
-            sx, sy = random.uniform(*back), h - 2 - random.uniform(0, 5) * cs
-            rect(px, sx - 2 * cs, sx + 2 * cs, sy - 2 * cs, sy, SMOKE, h)
+    elif g.mode == "drift":
+        circle(px, x0 + aw / 2, h - 2.5 * cs, 1.6 * cs, CAR_SHADOW, h, aw * 0.55 / (1.6 * cs))   # shadow
+        if g.drifting:                              # round clouds of tire smoke from the back wheels
+            back = (x0, x0 + aw * 0.65) if g.slip > 0 else (x0 + aw * 0.35, x0 + aw)
+            for _ in range(14):
+                circle(px, random.uniform(*back), h - 2 - random.uniform(0, 6) * cs,
+                       random.uniform(1.5, 3.5) * cs, random.choice((SMOKE, SMOKE2)), h)
     elif g.drifting:                                # drift smoke from the tires
         for _ in range(8):
             sx = x0 + random.choice([0, aw]) + random.uniform(-3, 3) * cs
@@ -744,10 +783,12 @@ def render(g, w, h):
     glow = max(dark, 0.5 if g.braking else 0) * (1.5 if g.braking else 1)
     if glow > 0.05:     # red glow around the taillights (bigger when braking)
         rad = (3.5 if g.braking else 2.5) * cs
-        lights = art[4]
-        spots = [c for c in range(len(lights)) if lights[c] == "r" and (c == 0 or lights[c - 1] != "r")]
-        for tx in (x0 + (c + 1) * cs for c in spots):     # middle of each pair of red lights
-            ty = y0 + 4.5 * cs
+        rows = [r for r, line in enumerate(art) if "r" in line]
+        lights = art[rows[0]]
+        ty = y0 + (rows[0] + len(rows) / 2) * cs
+        spots = [c + (len(lights[c:]) - len(lights[c:].lstrip("r"))) / 2       # middle of each red light
+                 for c in range(len(lights)) if lights[c] == "r" and (c == 0 or lights[c - 1] != "r")]
+        for tx in (x0 + c * cs for c in spots):
             for r in range(max(0, int(ty - rad)), min(h, int(ty + rad) + 1)):
                 for c in range(max(0, int(tx - rad)), min(w, int(tx + rad) + 1)):
                     d = math.hypot(c - tx, r - ty) / rad
