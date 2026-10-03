@@ -21,7 +21,7 @@ snowflakes, with Mt. Fuji on the horizon.
   (no snow here). A lower drift-cam shows the car turned sideways in a cloud of tire smoke.
   Points build up while you slide, linked drifts raise a combo up to x5, and hitting the guardrail loses the drift
 - Your records are saved and shown during the countdown, best first
-- Pure Python standard library, nothing to install, uses about 15 MB of RAM
+- Pure Python standard library, nothing to install, uses about 200 MB of RAM
 
 Inspired by the Roblox game *Tiny Wheels* (not affiliated).
 
