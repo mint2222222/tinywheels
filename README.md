@@ -7,12 +7,14 @@ snowflakes, with Mt. Fuji on the horizon.
 - Pseudo-3D "OutRun style" road with curves and hills, drawn with `▀` half-blocks in 24-bit color
 - A new random track every race
 - Ramps to jump, and stone lanterns, rocks and pine trees to avoid
-- A day and night cycle: sunrise, a red sun, sunset, then a moon and stars with glowing
-  lanterns, house windows and headlights
+- A day and night cycle: sunrise, a red sun, sunset, then a moon and stars. At night your
+  headlights light up the road ahead, the taillights glow (brighter when you brake), and
+  lanterns, house windows and shops shine warmly
 - Cozy roadside details: sakura trees, stone lanterns, little wooden houses, vending machines,
   festival lantern strings across the road, and a pagoda by Mt. Fuji
 - **3 LAPS** mode: race 3 laps for the fastest time
-- **INFINITE** mode: an endless road. Torii-gate checkpoints add time, and you score points for distance, drifting and jumps
+- **INFINITE** mode: an endless road. Torii-gate checkpoints add time, and you score points for distance, drifting and jumps.
+  Pass 20,000 points and convenience stores (konbini) start to appear along the road
 - Your records are saved and shown during the countdown, best first
 - Pure Python standard library, nothing to install, uses about 15 MB of RAM
 

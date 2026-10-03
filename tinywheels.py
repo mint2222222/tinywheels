@@ -21,7 +21,8 @@ INFINITE: the road never ends. You start with 30 seconds; every red torii gate
 is a checkpoint that adds time. Score points for distance (double while
 drifting = steering hard at speed) and for jumps. Drive until time runs out!
 
-Day turns into night and back every 3 minutes.
+Day turns into night and back every 3 minutes. Past 20,000 points in
+INFINITE, convenience stores (konbini) start showing up along the road.
 Yellow-black stripes are ramps (jump!). Lanterns, rocks and pines
 slow you down, and so does the deep snow.
 Your records are saved in ~/.local/share/tinywheels/
@@ -63,7 +64,14 @@ PAPER    = "240;85;55"                      # paper lanterns (chochin)
 STRING   = "60;45;45"
 MOON     = "250;245;215"
 STAR     = "255;255;235"
-BEAM     = ["138;132;118", "130;124;112"]   # road lit by the headlights
+HEADLIGHT = (1.0, 0.93, 0.75)              # warm white light the headlights add (r, g, b)
+TAILGLOW  = (1.0, 0.12, 0.08)              # red glow around the taillights
+BRAKE_LIGHT = "255;80;80"                      # brake lights (brighter red)
+BEAM_LEN = 15000                            # how far the headlights reach
+STORE    = "242;242;236"                    # konbini: white walls...
+STRIPES  = ["245;135;30", "0;140;85", "225;35;45"]   # ...with orange / green / red stripes
+STORE_LIT = "235;245;255"                   # bright shop windows
+SHELF    = "175;185;205"
 # The car: a white-and-black "panda" AE86 hatchback, seen from behind
 CAR = {"w": "245;245;245", "k": "35;40;60", "r": "220;30;40", "o": "255;150;40",
        "b": "15;15;20", "p": "230;230;210", "t": "45;45;45"}
@@ -79,7 +87,7 @@ CAR_ART = [                      # one letter per pixel, "." = see-through
     "tt............tt",
 ]
 # Things that make their own light. Everything else gets darker (and bluer) at night.
-GLOWS = {GLOW, WINDOW, VEND_LIT, PAPER, MOON, STAR, *BEAM, *DRINKS, CAR["r"], CAR["o"]}
+GLOWS = {GLOW, WINDOW, VEND_LIT, PAPER, MOON, STAR, *DRINKS, CAR["r"], CAR["o"], BRAKE_LIGHT, STORE_LIT, SHELF}
 
 # ---------------- day and night ----------------
 DAY_LENGTH = 180   # seconds for one full day + night
@@ -132,6 +140,7 @@ FPS       = 30
 DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "tinywheels")
 START_TIME = 30          # infinite mode: seconds on the clock at the start
 CHECKPOINT = 400         # infinite mode: a torii checkpoint every this many segments
+KONBINI_SCORE = 20000    # infinite mode: konbini stores start to appear after this score
 CHECKPOINT_TIME = 10     # infinite mode: seconds added by the first checkpoint (later ones give less)
 
 
@@ -163,6 +172,8 @@ def add_piece(g, n_in, n_hold, n_out, c, dy, deco=True):
             spr.append((random.choice([-1, 1]) * random.uniform(2.8, 4.5), "house", 0))
         if random.random() < 1 / 150:
             spr.append((random.choice([-1, 1]) * 1.6, "vending", 0))
+        if g.konbini and random.random() < 1 / 250:
+            spr.append((random.choice([-1, 1]) * 2.6, "konbini", 0))
         if i % 300 in (150, 158, 166):                       # festival lanterns over the road
             spr.append((0, "chochin", 0))
         if g.mode == "infinite" and i % CHECKPOINT == 0 and i:
@@ -194,6 +205,8 @@ class Game:
         self.mode = mode
         self.tod = tod               # time of day, 0..1 (0.3 = morning)
         self.pos = self.x = self.speed = 0.0
+        self.konbini = False         # infinite mode: unlocked at KONBINI_SCORE
+        self.braking = False
         self.curve, self.ys, self.kind, self.sprites = [], [], [], []
         self.y_end = 0.0
         add_piece(self, 0, 40, 0, 0, 0, deco=False)            # straight start
@@ -300,6 +313,7 @@ def update(g, dt, keys, t):
         g.speed -= OFF_DECEL * dt
     g.x = max(-3.0, min(3.0, g.x))
     g.speed = max(0.0, min(MAX_SPEED, g.speed))
+    g.braking = "down" in keys and not g.done
     g.drifting = bool(steer) and g.speed > MAX_SPEED * 0.6 and abs(g.x) <= 1 and not air
 
     if air or g.vz > 0:          # flying through the air
@@ -317,6 +331,10 @@ def update(g, dt, keys, t):
     if g.mode == "infinite" and not g.done:
         g.score += g.speed * dt / SEG * (2 if g.drifting else 1)   # 1 point per segment, x2 drifting
         g.time_left -= dt
+        if g.score >= KONBINI_SCORE and not g.konbini:      # unlock konbini, and put one just ahead
+            g.konbini = True
+            g.sprites[int(g.pos // SEG) + DRAW - 5].append((2.6, "konbini", 0))
+            say(g, "KONBINI AHEAD!")
         if g.time_left <= 0:
             g.time_left = 0.0
             finish(g, int(g.score))
@@ -428,6 +446,20 @@ def draw_sprite(px, what, v, cx, gy, s, clip):
         for row in range(max(0, int(top)), min(clip, int(top + tall))):
             d = (row - top) / tall
             span(px[row], cx - (350 + 450 * d) * s, cx + (350 + 450 * d) * s, SNOW_CAP if d < 0.45 else ROOF)
+    elif what == "konbini":                        # Japanese convenience store
+        rect(px, cx - 900 * s, cx + 900 * s, gy - 880 * s, gy, STORE, clip)
+        rect(px, cx - 920 * s, cx + 920 * s, gy - 930 * s, gy - 880 * s, SNOW_CAP, clip)
+        for k, col in enumerate(STRIPES):
+            rect(px, cx - 900 * s, cx + 900 * s, gy - (860 - k * 55) * s, gy - (805 - k * 55) * s, col, clip)
+        for x1, x2 in ((-830, -140), (140, 830)):                 # big bright windows with shelves
+            rect(px, cx + x1 * s, cx + x2 * s, gy - 620 * s, gy - 120 * s, STORE_LIT, clip)
+            for y in (470, 320):
+                rect(px, cx + x1 * s, cx + x2 * s, gy - y * s, gy - (y - 25) * s, SHELF, clip)
+                for k in range(5):
+                    x = x1 + 60 + k * (x2 - x1 - 120) / 5
+                    rect(px, cx + x * s, cx + (x + 50) * s, gy - (y + 90) * s, gy - y * s, DRINKS[k % 4], clip)
+        rect(px, cx - 90 * s, cx + 90 * s, gy - 620 * s, gy, SHELF, clip)          # glass door
+        rect(px, cx - 70 * s, cx + 70 * s, gy - 600 * s, gy, STORE_LIT, clip)
     elif what == "vending":                        # Japanese drink vending machine
         rect(px, cx - 170 * s, cx + 170 * s, gy - 700 * s, gy, VEND, clip)
         rect(px, cx - 130 * s, cx + 130 * s, gy - 640 * s, gy - 330 * s, VEND_LIT, clip)
@@ -484,6 +516,18 @@ def render(g, w, h):
     light = light_at(g.tod)
     dark = max(0.0, min(1.0, (0.85 - sum(light) / 3) / 0.5))     # 0 = day, 1 = night
     px = background(w, h, horizon, g.sky, g.tod, dark)
+    tinted, lit = {}, {}                            # color caches for this frame
+
+    def lighten(c, amount, color):
+        """Pixel color c, lit by the time of day plus `amount` (0..1) of a lamp's light."""
+        key = (c, int(amount * 12), color)
+        if key not in lit:
+            q = key[1] / 12
+            rgb = c.split(";")
+            v = c if c in GLOWS else ";".join(str(min(255, int(int(x) * (l + k * q))))
+                                              for x, l, k in zip(rgb, light, color))
+            lit[key] = tinted[v] = v               # already lit: don't darken it again later
+        return lit[key]
 
     maxy = h                                        # rows below this are already drawn
     x, dx = 0.0, -g.curve[base % N] * frac
@@ -517,17 +561,22 @@ def render(g, w, h):
             px[r] = row
         maxy = top
 
-    if dark > 0.35:                                 # headlights light up the road at night
-        top = int(h * 0.58)
-        for r in range(top, h):
-            half, row = w * (0.05 + 0.2 * (r - top) / (h - top)), px[r]
-            for c in range(max(0, int(w / 2 - half)), min(w, int(w / 2 + half))):
-                if row[c] in ROAD:
-                    row[c] = BEAM[row[c] == ROAD[1]]
-
     for i, s, c, gy, clip in reversed(seen):        # trees, obstacles, gates: far to near
         for sx, what, v in g.sprites[i]:
             draw_sprite(px, what, v, c + s * sx * ROAD_W, gy, s, clip)
+
+    if dark > 0.05:     # headlights: two warm beams straight ahead, fading with distance
+        for r in range(horizon + 1, h):
+            z = DEPTH * P * (CAM_H + g.jump_h) / (r - horizon)    # how far away this row is
+            if not PLAYER_Z * 0.9 < z < BEAM_LEN:
+                continue
+            fade, sc, half = 1.3 * (1 - z / BEAM_LEN) * dark, DEPTH * P / z, 400 + z * 0.16
+            row = px[r]
+            for c in range(max(0, int(w / 2 - (350 + half) * sc)), min(w, int(w / 2 + (350 + half) * sc) + 1)):
+                x = (c - w / 2) / sc                                # sideways distance, world units
+                i = min(1.0, fade * min(1.0, max(0.0, 1 - ((x + 350) / half) ** 2) + max(0.0, 1 - ((x - 350) / half) ** 2)))
+                if i > 0.04:
+                    row[c] = lighten(row[c], i, HEADLIGHT)
 
     for p in g.parts:
         r, col = int(p[1] * h), int(p[0] * w)
@@ -548,11 +597,21 @@ def render(g, w, h):
     for r, line in enumerate(CAR_ART):
         for c, ch in enumerate(line):
             if ch != ".":
-                rect(px, x0 + c * cs, x0 + (c + 1) * cs, y0 + r * cs, y0 + (r + 1) * cs, CAR[ch], h)
+                color = BRAKE_LIGHT if ch == "r" and g.braking else CAR[ch]
+                rect(px, x0 + c * cs, x0 + (c + 1) * cs, y0 + r * cs, y0 + (r + 1) * cs, color, h)
+    glow = max(dark, 0.5 if g.braking else 0) * (1.5 if g.braking else 1)
+    if glow > 0.05:     # red glow around the taillights (bigger when braking)
+        rad = (3.5 if g.braking else 2.5) * cs
+        for tx in (x0 + 3 * cs, x0 + 13 * cs):
+            ty = y0 + 4.5 * cs
+            for r in range(max(0, int(ty - rad)), min(h, int(ty + rad) + 1)):
+                for c in range(max(0, int(tx - rad)), min(w, int(tx + rad) + 1)):
+                    d = math.hypot(c - tx, r - ty) / rad
+                    if d < 1:
+                        px[r][c] = lighten(px[r][c], min(1.0, (1 - d) ** 2 * glow * 0.8), TAILGLOW)
 
-    tinted = {}                                     # every color, darkened for the time of day
 
-    def tint(c):
+    def tint(c):                                    # every other color: darkened for the time of day
         if c not in tinted:
             r, gr, b = c.split(";")
             tinted[c] = c if c in GLOWS else f"{int(int(r) * light[0])};{int(int(gr) * light[1])};{int(int(b) * light[2])}"
@@ -730,6 +789,12 @@ def selftest():
     if g.done:
         assert load_records("infinite") == [g.result]
     print(f"ok - score {int(g.score)}, {g.checkpoints} checkpoints, done={g.done}")
+    k = Game("infinite"); k.clock, k.score = 1, KONBINI_SCORE
+    update(k, 0.1, {"up"}, 0)
+    assert k.konbini and any(w == "konbini" for spr in k.sprites for _, w, _ in spr)
+    k.tod, k.braking = 0.0, True
+    assert render(k, 200, 100).count("▀") == 200 * 50
+    print("ok - konbini shows up at 20000 points, night lights draw fine")
     print(f"ok - {(time.perf_counter() - t0) / 300 * 1000:.1f} ms per frame, track {len(g.curve)} segments")
 
 
