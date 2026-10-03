@@ -13,6 +13,8 @@ snowflakes, with Mt. Fuji on the horizon.
 - Cozy roadside details: sakura trees, stone lanterns, little wooden houses, vending machines,
   festival lantern strings across the road, and a pagoda by Mt. Fuji
 - **3 LAPS** mode: race 3 laps for the fastest time
+- **GARAGE**: start with the AE86 and unlock more iconic Japanese cars with easy challenges:
+  Mazda RX-7 FD, Honda NSX, Toyota Supra MK4, Nissan Skyline GT-R R34 and Subaru Impreza WRX
 - **INFINITE** mode: an endless road. Torii-gate checkpoints add time, and you score points for distance, drifting and jumps.
   Pass 20,000 points and convenience stores (konbini) start to appear along the road
 - **DRIFT** mode: an Initial D-style downhill mountain pass through a forest of pines and sakuras
@@ -72,6 +74,7 @@ Then delete the folder if you want (`rm -rf ~/tinywheels`). Your records are kep
 | ← → / A D      | Steer                                       |
 | Space          | Handbrake: throw the car into a drift (DRIFT mode) |
 | 1 / 2 / 3      | Pick 3 LAPS / INFINITE / DRIFT on the title screen |
+| 4              | Open the GARAGE (← → to look, Enter to choose, Esc / M to go back) |
 | Enter          | Play again (after you finish)               |
 | M              | Back to the title screen                    |
 | Q / Esc        | Quit                                        |
@@ -83,7 +86,7 @@ Run `tinywheels --help` to see the controls in the terminal.
 - **Yellow-black stripes** are ramps: drive over them fast to jump.
 - **Lanterns, rocks and pine trees** on the road slow you down. So does the deep snow off the road.
 - **3 LAPS:** fastest total time wins.
-- **INFINITE:** you start with 30 seconds. Every red torii gate is a checkpoint that adds time.
+- **INFINITE:** you start with 40 seconds. Every red torii gate is a checkpoint that adds time.
   You score points for distance (double while drifting, which means steering hard at high speed) and
   for jumps. Keep going until time runs out.
 
@@ -91,8 +94,19 @@ Run `tinywheels --help` to see the controls in the terminal.
   the gas held to hold the drift, and steer the other way to straighten up. Your drift points are added to
   your score when you straighten out without hitting anything. Chain drifts quickly for a bigger combo.
 
+### Cars to unlock
+
+| Car | How to unlock it |
+|---|---|
+| Toyota AE86 Trueno | You start with it |
+| Mazda RX-7 FD | Finish a 3 LAPS race |
+| Honda NSX | Finish 5 races (any mode) |
+| Toyota Supra MK4 | Score 3000 in INFINITE |
+| Nissan Skyline GT-R R34 | Score 2000 in DRIFT |
+| Subaru Impreza WRX | Get a x3 combo in DRIFT |
+
 Records are saved in `~/.local/share/tinywheels/` (`records.txt` for lap times,
-`infinite.txt` and `drift.txt` for scores).
+`infinite.txt` and `drift.txt` for scores, `progress.json` for your cars).
 
 ## License
 

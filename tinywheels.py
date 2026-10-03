@@ -14,12 +14,13 @@ Controls:
   1            pick 3 LAPS mode (on the title screen)
   2            pick INFINITE mode (on the title screen)
   3            pick DRIFT mode (on the title screen)
+  4            open the GARAGE to choose your car (on the title screen)
   Enter        play again on a new random track (after you finish)
   M            back to the title screen
-  Q / Esc      quit
+  Q / Esc      quit (Esc in the garage just goes back)
 
 3 LAPS: race 3 laps as fast as you can.
-INFINITE: the road never ends. You start with 30 seconds; every red torii gate
+INFINITE: the road never ends. You start with 40 seconds; every red torii gate
 is a checkpoint that adds time. Score points for distance (double while
 drifting = steering hard at speed) and for jumps. Drive until time runs out!
 
@@ -29,13 +30,17 @@ drift, steer the other way to straighten up. Points build up while you
 slide and count when you straighten out cleanly; link drifts for a combo
 (up to x5). Hit the guardrail and you lose the drift you were in.
 
+GARAGE: you start with the AE86. Unlock more iconic Japanese cars with easy
+challenges: Mazda RX-7 FD, Honda NSX, Toyota Supra MK4, Nissan Skyline
+GT-R R34 and Subaru Impreza WRX. The garage shows how to get each one.
+
 Day turns into night and back every 3 minutes. Past 20,000 points in
 INFINITE, convenience stores (konbini) start showing up along the road.
 Yellow-black stripes are ramps (jump!). Lanterns, rocks and pines
 slow you down, and so does the deep snow.
 Your records are saved in ~/.local/share/tinywheels/
 """
-import math, os, random, re, select, signal, sys, termios, time, tty
+import json, math, os, random, re, select, signal, sys, termios, time, tty
 
 # ---------------- colors ("r;g;b") ----------------
 SKY      = "190;205;238"
@@ -88,7 +93,7 @@ CAR_ART = [                      # one letter per pixel, "." = see-through
     "...wkkkkkkkkw...",
     "..wkkkkkkkkkkw..",
     ".wwwwwwwwwwwwww.",
-    "wrrooowwwwooorrw",
+    "wLLLLLLLLLLLLLLw",
     "bbbbbbbbbbbbbbbb",
     "bbbbbbppppbbbbbb",
     "tt............tt",
@@ -103,8 +108,8 @@ DRIFT_REAR = [
     "....wwkkkgkkkkkkkkkkww....",
     "...BbbbbbbbbbbbbbbbbbbB...",
     "..wwwwwwwwwwwwwwwwwwwwww..",
-    ".wwrrroooBBBBBBBBooorrrww.",
-    ".wwrrroooBBBBBBBBooorrrww.",
+    ".wwLLLLLLLLLLLLLLLLLLLLww.",
+    ".wwLLLLLLLLLLLLLLLLLLLLww.",
     ".bbbbbbbbbbppppbbbbbbbbbb.",
     ".bbbbbbbbbbppppbbbbbbbbbb.",
     ".BBBBBBBBBBBBBBBBBBBBBBBB.",
@@ -118,8 +123,8 @@ DRIFT_HALF = [   # turned a little: nose to the right
     "...wwkkkgkkkkkkkkkwskkks....",
     "..BbbbbbbbbbbbbbbbBsssssss..",
     ".wwwwwwwwwwwwwwwwwwsssssssy.",
-    ".wrrooBBBBBBBBoorrwssssssss.",
-    ".wrrooBBBBBBBBoorrwssssssss.",
+    ".wLLLLLLLLLLLLLLLLwssssssss.",
+    ".wLLLLLLLLLLLLLLLLwssssssss.",
     ".bbbbbbbbppppbbbbbbBBBBBBBo.",
     ".bbbbbbbbppppbbbbbbbbbbbbbb.",
     ".BBBBBBBBBBBBBBBBBBbbbtmmtb.",
@@ -133,8 +138,8 @@ DRIFT_SIDE = [   # fully sideways: nose to the right
     "...wwkkkgkkkkkkkwskkkkkSkkkkkksB..",
     "..BbbbbbbbbbbbbbBssssssssssssssWWW",
     ".wwwwwwwwwwwwwwwwssssssssssssssssy",
-    ".wrrooBBBBBBoorrwsssssssssmmssssss",
-    ".wrrooBBBBBBoorrwssssssssssssssssS",
+    ".wLLLLLLLLLLLLLLwsssssssssmmssssss",
+    ".wLLLLLLLLLLLLLLwssssssssssssssssS",
     ".bbbbbbbppbbbbbbbBBBBBBBBBBBBBBBBo",
     ".bbbbbbbppbbbbbbbbbbbbbbbbbbbbbbbb",
     ".BBBBBBBBBBBBBBBBbbtmmtbbbbbbtmmtb",
@@ -144,6 +149,71 @@ DRIFT_SIDE = [   # fully sideways: nose to the right
 CAR.update({"W": "255;255;255", "s": "198;200;210", "S": "160;163;176", "g": "88;104;136",
             "B": "52;52;60", "m": "170;173;182", "y": "255;245;200"})   # highlight, shade, glass shine, trim, rims
 CAR_SHADOW = "38;40;48"
+
+
+# ---------------- the garage: iconic Japanese cars ----------------
+def shade(color, f):
+    return ";".join(str(min(255, int(int(x) * f))) for x in color.split(";"))
+
+
+def taillights(n, style):
+    """A row of n pixels of taillights: "split" blocks, "round" pairs of round lights, or one "bar"."""
+    if style == "bar":
+        return "o" + "r" * (n - 2) + "o"
+    side, mid = {"split": ("rrrooo", "B"), "round": ("rrwrr", "w")}[style]
+    side = side[:n // 2 - 1]
+    return side + mid * (n - 2 * len(side)) + side[::-1]
+
+
+def add_wing(art):
+    """A big rear wing: a body-colored blade with black end plates, sticking out past the car."""
+    art = list(art)
+    i = next(r for r, row in enumerate(art) if "Bb" in row)     # the spoiler line under the rear glass
+    row, up = art[i], art[i - 1]
+    a, b = row.index("B") - 1, row.index("B", row.index("B") + 1) + 1
+    art[i - 1] = up[:a] + "B" + "W" * (b - a - 1) + "B" + up[b + 1:]
+    art[i] = row[:a] + "B" + row[a + 1:b] + "B" + row[b + 1:]
+    return art
+
+
+# how: the challenge that unlocks it. test(g, progress): did this race complete it?
+CARS = [
+    dict(name="Toyota AE86 Trueno", paint="245;245;245", lower="15;15;20", lights="split", wing=False,
+         how="", test=lambda g, p: True),
+    dict(name="Mazda RX-7 FD", paint="250;200;35", lights="round", wing=True,
+         how="Finish a 3 LAPS race", test=lambda g, p: g.mode == "laps"),
+    dict(name="Honda NSX", paint="205;28;35", lights="bar", wing=False,
+         how="Finish 5 races (any mode)", test=lambda g, p: p["races"] >= 5),
+    dict(name="Toyota Supra MK4", paint="245;115;30", lights="round", wing=True,
+         how="Score 3000 in INFINITE", test=lambda g, p: g.mode == "infinite" and g.result >= 3000),
+    dict(name="Nissan Skyline GT-R R34", paint="35;85;200", lights="round", wing=True,
+         how="Score 2000 in DRIFT", test=lambda g, p: g.mode == "drift" and g.result >= 2000),
+    dict(name="Subaru Impreza WRX", paint="30;55;150", lights="split", wing=True, rims="215;175;55",
+         how="Get a x3 combo in DRIFT", test=lambda g, p: g.mode == "drift" and g.max_combo >= 3),
+]
+for car in CARS:
+    def make(art, wing, car=car):
+        out = []
+        for row in art:
+            if "L" in row:
+                a, n = row.index("L"), row.count("L")
+                row = row[:a] + taillights(n, car["lights"]) + row[a + n:]
+            out.append(row)
+        return add_wing(out) if wing else out
+    car["art"] = make(CAR_ART, False)                  # small car for 3 LAPS / INFINITE
+    car["rear"], car["half"], car["side"] = (make(a, car["wing"]) for a in (DRIFT_REAR, DRIFT_HALF, DRIFT_SIDE))
+    paint = car["paint"]
+    car["pal"] = dict(CAR, w=paint, W=shade(paint, 1.12), s=shade(paint, 0.82), S=shade(paint, 0.66),
+                      b=car.get("lower") or shade(paint, 0.45), m=car.get("rims", CAR["m"]))
+LOCKED = {ch: "30;30;40" for ch in CAR}              # a locked car is just a dark shape
+
+
+def draw_car(px, art, pal, x0, y0, cs, h, braking=False):
+    for r, line in enumerate(art):
+        for c, ch in enumerate(line):
+            if ch != ".":
+                color = BRAKE_LIGHT if ch == "r" and braking else pal[ch]
+                rect(px, x0 + c * cs, x0 + (c + 1) * cs, y0 + r * cs, y0 + (r + 1) * cs, color, h)
 SMOKE2   = "208;208;215"
 
 # Things that make their own light. Everything else gets darker (and bluer) at night.
@@ -207,11 +277,11 @@ JUMP_V    = 2200
 LAPS      = 3
 FPS       = 30
 DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "tinywheels")
-START_TIME = 30          # infinite mode: seconds on the clock at the start
-CHECKPOINT = 400         # infinite mode: a torii checkpoint every this many segments
+START_TIME = 40          # infinite mode: seconds on the clock at the start
+CHECKPOINT = 350         # infinite mode: a torii checkpoint every this many segments
 DRIFT_LEN = 3600         # drift mode: length of the mountain course, in segments
 KONBINI_SCORE = 20000    # infinite mode: konbini stores start to appear after this score
-CHECKPOINT_TIME = 10     # infinite mode: seconds added by the first checkpoint (later ones give less)
+CHECKPOINT_TIME = 11     # infinite mode: seconds added by the first checkpoint (later ones give less)
 
 
 # ---------------- random track ----------------
@@ -336,6 +406,10 @@ class Game:
         self.pending = 0.0           # drift mode: points of the drift you're in right now
         self.combo = 1               # drift mode: multiplier for drifts linked together
         self.calm = 0.0              # drift mode: seconds since the last drift
+        self.max_combo = 1           # drift mode: best combo this run
+        self.car = CARS[load_progress()["car"]]
+        self.garage = None           # title menu: which car the garage shows (None = garage closed)
+        self.new_cars = []           # cars unlocked by this race
         snow = mode != "drift"       # no snow on the mountain pass, only petals
         self.parts = [[random.random(), random.random(), random.uniform(-0.03, 0.03),
                        random.uniform(0.05, 0.12) if i % 2 or not snow else random.uniform(0.1, 0.22),
@@ -361,12 +435,40 @@ def load_records(mode):
         return []
 
 
+def load_progress():
+    """Which cars you have, which one you drive, and how many races you finished."""
+    try:
+        with open(os.path.join(DATA_DIR, "progress.json")) as f:
+            p = json.load(f)
+    except (OSError, ValueError):
+        p = {}
+    p.setdefault("car", 0)
+    p.setdefault("unlocked", [0])
+    p.setdefault("races", 0)
+    if p["car"] not in p["unlocked"] or not 0 <= p["car"] < len(CARS):
+        p["car"] = 0
+    return p
+
+
+def save_progress(p):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(os.path.join(DATA_DIR, "progress.json"), "w") as f:
+        json.dump(p, f)
+
+
 def finish(g, value):
     g.done, g.result = True, value
     g.records = sorted(g.records + [value], reverse=g.mode in SCORED)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(records_file(g.mode), "w") as f:
         f.write("\n".join(f"{t:.3f}" for t in g.records) + "\n")
+    p = load_progress()                                 # did this race unlock a new car?
+    p["races"] += 1
+    for i, car in enumerate(CARS):
+        if i not in p["unlocked"] and car["test"](g, p):
+            p["unlocked"].append(i)
+            g.new_cars.append(car["name"])
+    save_progress(p)
 
 
 def fmt(t):
@@ -472,6 +574,7 @@ def update(g, dt, keys, t):
                 say(g, f"+{pts}" + (f"  x{g.combo}" if g.combo > 1 else ""))
                 if g.pending > 150:
                     g.combo = min(5, g.combo + 1)
+                    g.max_combo = max(g.max_combo, g.combo)
                 g.pending = 0.0
             if g.calm > 4:
                 g.combo = 1
@@ -494,7 +597,7 @@ def update(g, dt, keys, t):
             g.vz = JUMP_V * g.speed / MAX_SPEED
         for sx, what, _ in g.sprites[s]:
             if what == "torii" and a > start and g.mode == "infinite" and not g.done:
-                bonus = max(4.0, CHECKPOINT_TIME - g.checkpoints * 0.25)
+                bonus = max(5.0, CHECKPOINT_TIME - g.checkpoints * 0.2)
                 g.time_left += bonus
                 g.checkpoints += 1
                 say(g, f"CHECKPOINT +{bonus:.0f}s")
@@ -750,9 +853,20 @@ def render(g, w, h):
         if 0 <= r < h:
             span(px[r], col, col + (2 if p[4] != FLAKE else 1), p[4])
 
-    art, cs = CAR_ART, max(1, round(w / 90))      # the car: from behind, or turning when drifting
+    if g.garage is not None:                        # garage: show off a car, slowly turning around
+        car = CARS[g.garage]
+        art = [car["rear"], car["half"], car["side"], car["half"]][int(time.monotonic() / 0.9) % 4]
+        if int(time.monotonic() / 3.6) % 2:
+            art = [row[::-1] for row in art]
+        cs = max(1, round(w / 45))
+        x0, y0 = w // 2 - len(art[0]) * cs // 2, int(h * 0.92) - len(art) * cs
+        circle(px, w / 2, y0 + len(art) * cs, 1.6 * cs, CAR_SHADOW, h, len(art[0]) * 0.55 / 1.6)
+        unlocked = g.garage in load_progress()["unlocked"]
+        draw_car(px, art, car["pal"] if unlocked else LOCKED, x0, y0, cs, h)
+        return finish_frame(px, w, h, tinted, light)
+    art, cs = g.car["art"], max(1, round(w / 90))  # the car: from behind, or turning when drifting
     if g.mode == "drift":
-        art = DRIFT_REAR if abs(g.slip) < 0.15 else DRIFT_HALF if abs(g.slip) < 0.45 else DRIFT_SIDE
+        art = g.car["rear"] if abs(g.slip) < 0.15 else g.car["half"] if abs(g.slip) < 0.45 else g.car["side"]
         if g.slip < 0:
             art = [row[::-1] for row in art]        # nose to the left: mirror it
         cs = max(1, round(w / 85))
@@ -775,11 +889,7 @@ def render(g, w, h):
             sx = x0 + random.choice([0, aw]) + random.uniform(-3, 3) * cs
             sy = h - 3 - random.uniform(0, 3) * cs
             rect(px, sx - cs, sx + cs, sy - cs, sy, SMOKE, h)
-    for r, line in enumerate(art):
-        for c, ch in enumerate(line):
-            if ch != ".":
-                color = BRAKE_LIGHT if ch == "r" and g.braking else CAR[ch]
-                rect(px, x0 + c * cs, x0 + (c + 1) * cs, y0 + r * cs, y0 + (r + 1) * cs, color, h)
+    draw_car(px, art, g.car["pal"], x0, y0, cs, h, g.braking)
     glow = max(dark, 0.5 if g.braking else 0) * (1.5 if g.braking else 1)
     if glow > 0.05:     # red glow around the taillights (bigger when braking)
         rad = (3.5 if g.braking else 2.5) * cs
@@ -794,9 +904,12 @@ def render(g, w, h):
                     d = math.hypot(c - tx, r - ty) / rad
                     if d < 1:
                         px[r][c] = lighten(px[r][c], min(1.0, (1 - d) ** 2 * glow * 0.8), TAILGLOW)
+    return finish_frame(px, w, h, tinted, light)
 
 
-    def tint(c):                                    # every other color: darkened for the time of day
+def finish_frame(px, w, h, tinted, light):
+    """Turn the pixels into one string of colored "▀" characters."""
+    def tint(c):                                    # every color: darkened for the time of day
         if c not in tinted:
             r, gr, b = c.split(";")
             tinted[c] = c if c in GLOWS else f"{int(int(r) * light[0])};{int(int(gr) * light[1])};{int(int(b) * light[2])}"
@@ -823,8 +936,10 @@ def hud(g, cols, rows):
     kmh = int(g.speed / MAX_SPEED * 180)
     best = show(g, g.records[0]) if g.records else "--"
     mid = rows // 3
-    if g.mode is None:
-        bar = " TINY WHEELS"
+    if g.garage is not None:
+        bar = f" GARAGE   car {g.garage + 1} of {len(CARS)}"
+    elif g.mode is None:
+        bar = f" TINY WHEELS   car: {g.car['name']}"
     elif g.mode == "drift":
         now = g.clock if g.done else max(0.0, g.clock)
         done = min(100, int(100 * (g.pos + PLAYER_Z) / (g.finish_seg * SEG)))
@@ -839,12 +954,20 @@ def hud(g, cols, rows):
         bar = f" LAP {lap}/{LAPS}   TIME {fmt(now)}   BEST {best}   {kmh:3d} km/h"
     s = f"\x1b[1;1H{style}{bar[:cols].ljust(cols)}"
 
-    if g.mode is None:
+    if g.garage is not None:
+        car, p = CARS[g.garage], load_progress()
+        s += center(3, car["name"].upper() if g.garage in p["unlocked"] else "? ? ?")
+        status = ("DRIVING THIS ONE" if g.garage == p["car"] else "Enter = drive this car"
+                  if g.garage in p["unlocked"] else "LOCKED - " + car["how"])
+        s += center(5, status)
+        s += center(rows - 1, "<- -> = look around    Enter = choose    m = back")
+    elif g.mode is None:
         s += center(mid, "T I N Y   W H E E L S")
         s += center(mid + 2, "1 = 3 LAPS      fastest time wins     ")
         s += center(mid + 3, "2 = INFINITE    drive on, score points")
         s += center(mid + 4, "3 = DRIFT       mountain pass, drift! ")
-        s += center(mid + 6, "q = quit")
+        s += center(mid + 5, "4 = GARAGE      choose your car       ")
+        s += center(mid + 7, "q = quit")
     elif g.clock < 0:
         s += center(mid, str(math.ceil(-g.clock)))
         if g.records:                              # the records list, best first
@@ -869,14 +992,17 @@ def hud(g, cols, rows):
             s += center(mid, "FINISHED!")
             s += center(mid + 2, "Laps: " + "  ".join(fmt(t) for t in g.laps))
         s += center(mid + 4, "NEW RECORD!" if place == 1 else f"Place #{place} of {len(g.records)}   Best: {best}")
-        s += center(mid + 6, "Enter = play again    m = menu    q = quit")
+        for n, name in enumerate(g.new_cars):
+            s += center(mid + 6 + n, f"NEW CAR UNLOCKED: {name}!")
+        s += center(mid + 7 + len(g.new_cars), "Enter = play again    m = menu    q = quit")
     return s + "\x1b[0m"
 
 
 # ---------------- keyboard ----------------
 KEY_RE = re.compile(rb"\x1b\[\?\d+u|\x1b\[(\d*)(?:;(\d*)(?::(\d+))?)?([A-Za-z~])|\x1bO([A-D])|([\s\S])")
-LETTERS = {"w": "up", "s": "down", "a": "left", "d": "right", "q": "quit", "\x1b": "quit",
-           "\x03": "quit", "\r": "enter", "\n": "enter", " ": "drift", "1": "laps", "2": "infinite", "3": "touge", "m": "menu"}
+LETTERS = {"w": "up", "s": "down", "a": "left", "d": "right", "q": "quit", "\x1b": "esc",
+           "\x03": "quit", "\r": "enter", "\n": "enter", " ": "drift", "1": "laps", "2": "infinite", "3": "touge",
+           "4": "garage", "m": "menu"}
 ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left"}
 HELD = {"up", "down", "left", "right", "drift"}     # keys that count while you hold them
 
@@ -925,6 +1051,8 @@ def main():
                     if name == "kitty":
                         kitty = True
                     elif name in HELD:
+                        if ev == 1:
+                            pressed.add(name)                # (the garage uses single presses)
                         if ev == 3:
                             held.pop(name, None)
                         elif kitty:
@@ -933,9 +1061,21 @@ def main():
                             held[name] = now + (0.12 if held.get(name, 0) > now else 0.5)
                     elif ev != 3:
                         pressed.add(name)
-            if "quit" in pressed:
+            if "quit" in pressed or ("esc" in pressed and g.garage is None):
                 break
-            if g.mode is None and pressed & {"laps", "infinite", "touge", "enter"}:
+            if g.garage is not None:                       # in the garage
+                p = load_progress()
+                if "left" in pressed or "right" in pressed:
+                    g.garage = (g.garage + (1 if "right" in pressed else -1)) % len(CARS)
+                elif "enter" in pressed and g.garage in p["unlocked"]:
+                    p["car"] = g.garage
+                    save_progress(p)
+                    g.car, g.garage = CARS[g.garage], None
+                elif pressed & {"menu", "esc"}:
+                    g.garage = None
+            elif g.mode is None and "garage" in pressed:
+                g.garage = load_progress()["car"]
+            elif g.mode is None and pressed & {"laps", "infinite", "touge", "enter"}:
                 mode = "infinite" if "infinite" in pressed else "drift" if "touge" in pressed else "laps"
                 g = Game(mode, g.tod)
             elif "menu" in pressed:
@@ -970,7 +1110,10 @@ def selftest():
     assert parse(b"\x1b[1;1:3D") == [("left", 3)]
     assert parse(b"\x1b[119;1:3u") == [("up", 3)]
     assert parse(b"\x1b[?11u") == [("kitty", 1)]
-    assert parse(b"q") == [("quit", 1)]
+    assert parse(b"q") == [("quit", 1)] and parse(b"\x1b[27u") == [("esc", 1)]
+    for car in CARS:                                # every car's pictures are proper rectangles
+        for art in (car["art"], car["rear"], car["half"], car["side"]):
+            assert len({len(row) for row in art}) == 1 and all(ch in car["pal"] for row in art for ch in row if ch != "."), car["name"]
     t0 = time.perf_counter()
     for i in range(300):                            # drive full speed for 10 seconds
         update(g, 1 / 30, {"up"}, i / 30)
@@ -1012,6 +1155,15 @@ def selftest():
     d.done, d.pending, d.bonk, d.x = False, 500.0, 0.0, 1.3     # hitting the guardrail loses the drift
     update(d, 1 / 30, set(), 0)
     assert d.pending == 0 and d.combo == 1 and abs(d.x) <= 1.12
+    p = load_progress()                             # the drift run above unlocked cars; laps unlocks the RX-7
+    assert 0 in p["unlocked"] and 1 not in p["unlocked"] and p["races"] >= 2
+    lp = Game("laps"); lp.clock, lp.laps, lp.speed, lp.pos = 70.0, [23.0, 23.0], MAX_SPEED, lp.length - 50
+    update(lp, 1 / 30, set(), 0)
+    assert lp.done and "Mazda RX-7 FD" in lp.new_cars and 1 in load_progress()["unlocked"]
+    m = Game(); m.garage = 2                         # garage draws a locked car (NSX needs 5 races)
+    assert render(m, 200, 100).count("▀") == 200 * 50 and "LOCKED" in hud(m, 200, 50)
+    m.garage = 1
+    assert "Enter = drive" in hud(m, 200, 50)
     print(f"ok - drift bot finished the pass with {int(d.score)} points in {fmt(d.clock)}")
     print(f"ok - {(time.perf_counter() - t0) / 300 * 1000:.1f} ms per frame, track {len(g.curve)} segments")
 
